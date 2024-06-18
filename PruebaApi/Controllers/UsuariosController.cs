@@ -2,9 +2,13 @@
 using Dapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using PruebaApi.Config;
 using PruebaApi.DTO;
+using PruebaApi.Modelo;
 using System.Data;
+using System.Security.Claims;
+using System.Text;
 
 namespace PruebaApi.Controllers
 {
@@ -14,13 +18,15 @@ namespace PruebaApi.Controllers
     {
         private readonly IDbConnection _dbConection;
         private readonly IMapper _mapper;
+        private readonly IConfiguration _configuration;
 
-        public UsuariosController(IDbConnection dbConection, IMapper mapper)
+        public UsuariosController(IDbConnection dbConection, IMapper mapper, IConfiguration configuration)
         {
             _dbConection = dbConection;
             _mapper = mapper;
+            _configuration = configuration;
         }
-        [HttpPost]
+        [HttpPost("register")]
         public async Task<IActionResult> Register(UserRegistrationDto userDto)
         {
             //validar modelo
@@ -50,6 +56,59 @@ namespace PruebaApi.Controllers
             await _dbConection.ExecuteAsync(query, parameters);
 
             return Ok(new { message = "User registered successfully"});
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(UserLoginDto loginDto)
+        {
+            var parameters = new DynamicParameters();
+            parameters.Add("Usuario", loginDto.Usuario);
+
+            var query = "EXEC Usuario_Obtener @Usuario";
+            var user = await _dbConection.QueryFirstOrDefaultAsync<User>(query, parameters);
+
+            // Verificar si el usuario es nulo o si la contraseña no coincide
+            if (user == null)
+            {
+                return Unauthorized(new { message = "Invalid credentials" });
+            }
+
+            if (!BCrypt.Net.BCrypt.Verify(loginDto.Contrasena, user.Contrasena))
+            {
+                return Unauthorized(new { message = "Invalid credentials" });
+            }
+
+            if (string.IsNullOrEmpty(user.Usuario))
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "User data is incomplete" });
+            }
+
+            var tokenHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+            var key = Encoding.ASCII.GetBytes(_configuration["Jwt:Key"]);
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(
+                [
+                    new Claim(ClaimTypes.Name, user.Usuario),
+                    new Claim(ClaimTypes.Role, "User")
+                ]),
+                Expires = DateTime.UtcNow.AddHours(1),
+                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+            };
+            var token = tokenHandler.CreateToken(tokenDescriptor);
+            var tokenString = tokenHandler.WriteToken(token);
+
+            return Ok(new
+            { 
+                token = tokenString,
+                user = new 
+                {
+                    user.Id,
+                    user.Nombre,
+                    user.Correo,
+                    user.IdCategoria
+                }
+            });
         }
     }
 }

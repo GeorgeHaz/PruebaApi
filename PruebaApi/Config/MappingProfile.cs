@@ -9,6 +9,7 @@ namespace PruebaApi.Config
         public MappingProfile() 
         {
             CreateMap<UserRegistrationDto, User>();
+            CreateMap<UserLoginDto, User>();
         }
     }
 }
