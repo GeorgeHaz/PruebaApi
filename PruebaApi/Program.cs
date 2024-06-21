@@ -2,6 +2,7 @@ using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Data.SqlClient;
 using Microsoft.IdentityModel.Tokens;
+using NLog.Extensions.Logging;
 using System.Data;
 using System.Text;
 
@@ -20,6 +21,7 @@ builder.Services.AddAuthentication(options =>
 })
     .AddJwtBearer(options =>
     {
+        var jwtSettings = builder.Configuration.GetSection("JWt");
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -28,7 +30,8 @@ builder.Services.AddAuthentication(options =>
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtSettings["Key"]))
         };
     });
 
@@ -42,12 +45,18 @@ builder.Services.AddFluentValidation(fv => fv.RegisterValidatorsFromAssemblyCont
 builder.Services.AddTransient<IDbConnection>(sp =>
     new SqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+//Configurar el NLog
+builder.Host.ConfigureLogging((hostingContext, logging) =>
+{
+    logging.AddNLog();
+});
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsProduction())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
